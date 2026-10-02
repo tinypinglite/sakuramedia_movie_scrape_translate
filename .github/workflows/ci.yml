@@ -1,0 +1,64 @@
+name: Plugin CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v7.0.1
+        with:
+          path: sakuramedia_movie_scrape_translate
+
+      - name: Checkout SakuraMedia host
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: tinypinglite/sakuramediabe
+          ref: c2728c2f3c4c25636f42a497d3cf55648db854f0
+          path: host
+
+      - name: Set up Python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.10'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Sync host test environment
+        working-directory: host
+        run: uv sync --all-groups --no-install-project
+
+      - name: Lint plugin
+        working-directory: sakuramedia_movie_scrape_translate
+        run: ../host/.venv/bin/ruff check .
+
+      - name: Run plugin tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/host
+        run: >
+          host/.venv/bin/python -m pytest
+          "${{ github.workspace }}/sakuramedia_movie_scrape_translate/tests"
+          -q
+          --confcutdir="${{ github.workspace }}/sakuramedia_movie_scrape_translate/tests"
+          -o addopts=
+
+      - name: Build plugin package
+        working-directory: sakuramedia_movie_scrape_translate
+        run: python3 tools/package_plugin.py
+
+      - name: Upload plugin package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: sakuramedia-movie-scrape-translate-package
+          path: sakuramedia_movie_scrape_translate/dist/*.zip
+          if-no-files-found: error
+          retention-days: 14

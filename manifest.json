@@ -1,0 +1,10 @@
+{
+  "plugin_id": "sakuramedia_movie_scrape_translate",
+  "display_name": "SakuraMedia 影片文案抓取与翻译",
+  "version": "0.0.1",
+  "host_api_version": 6,
+  "settings_model": "DmmSettings",
+  "requires_python": ">=3.10,<3.11",
+  "author": "tinyping",
+  "release_api_url": "https://api.github.com/repos/tinypinglite/sakuramedia_movie_scrape_translate/releases/latest"
+}
