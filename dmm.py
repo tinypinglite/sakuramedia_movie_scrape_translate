@@ -70,7 +70,11 @@ class _Page(HTMLParser):
             or {"item", "fn"} <= set(attrs.get("class", "").split())
         ):
             flags.add("heading")
+        if tag == "div" and "title-block__title" in attrs.get("class", "").split():
+            flags.add("heading")
         if tag == "div" and {"mg-b20", "lh4"} <= set(attrs.get("class", "").split()):
+            flags.add("description")
+        if tag == "div" and "ignore-new-line" in attrs.get("class", "").split():
             flags.add("description")
         if tag == "a" and attrs.get("href"):
             self.links.append(attrs["href"])
@@ -138,15 +142,16 @@ def _cid(url: str) -> str:
 
 
 def _matches(cid: str, number: str) -> bool:
-    # 仅转换有字母前缀的 DMM 品番，不折叠纯数字番号的有效分隔符。
-    match = re.fullmatch(r"([a-z]{2,10})[-_ ]?(\d{2,8})", number, re.IGNORECASE)
+    # 逐个比较品番内的字母+数字段，兼容 h_<数字>、纯数字前缀和 r/tk 等后缀的 cid；
+    # 不折叠纯数字番号的有效分隔符。
+    match = re.fullmatch(r"([a-z]{1,10})[-_ ]?(\d{2,8})", number, re.IGNORECASE)
     if not match:
         return cid.casefold() == number.casefold()
-    product = re.fullmatch(r"\d*([a-z]{2,10})(\d+)", cid, re.IGNORECASE)
-    return bool(
-        product
-        and product[1].casefold() == match[1].casefold()
-        and int(product[2]) == int(match[2])
+    label = match[1].casefold()
+    digits = int(match[2])
+    return any(
+        found.casefold() == label and int(value) == digits
+        for found, value in re.findall(r"([a-z]+)(\d+)", cid, re.IGNORECASE)
     )
 
 
@@ -279,11 +284,13 @@ class DmmClient:
                     else ""
                 )
             if not title and not desc:
-                raise DmmError("detail_parse_error", "DMM 商品详情结构无法识别")
+                continue
             result = DmmFetchResult(
                 "success" if title and desc else "partial", title, desc, url, _cid(url)
             )
             if title and desc:
                 return result
             best = best or result
+        if best is None:
+            raise DmmError("detail_parse_error", "DMM 商品详情结构无法识别")
         return best

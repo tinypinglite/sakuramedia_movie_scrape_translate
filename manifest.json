@@ -1,7 +1,7 @@
 {
   "plugin_id": "sakuramedia_movie_scrape_translate",
   "display_name": "SakuraMedia 影片文案抓取与翻译",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "host_api_version": 6,
   "settings_model": "DmmSettings",
   "requires_python": ">=3.10,<3.11",

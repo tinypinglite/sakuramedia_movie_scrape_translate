@@ -350,7 +350,6 @@ def run_pipeline(context, *, settings, reporter, movie_number=None, translate_on
                     attempts = cache[f"{field}_attempts"]
                     if attempts >= MAX_ATTEMPTS and movie_number is None:
                         stats["translation_exhausted"] += 1
-                        mark_failed(movie)
                     else:
                         translations.append((movie, field, source, attempts))
                         stats["pending_translation"] += 1
@@ -380,9 +379,8 @@ def run_pipeline(context, *, settings, reporter, movie_number=None, translate_on
                 if cache is None or cache["fetch_status"] in ("pending", "error"):
                     if not translate_only:
                         attempts = cache["fetch_attempts"] if cache else 0
-                        if attempts >= MAX_ATTEMPTS:
+                        if attempts >= MAX_ATTEMPTS and movie_number is None:
                             stats["fetch_exhausted"] += 1
-                            mark_failed(movie)
                         elif all(
                             movie.owners.get(field) not in (None, PLUGIN_OWNER)
                             for field in ("title", "summary")
@@ -462,8 +460,6 @@ def run_pipeline(context, *, settings, reporter, movie_number=None, translate_on
         summary = _result_text(stats)
         if stats["movie_not_found"]:
             summary = "未找到指定影片 · " + summary
-        if stats["failed_movies"]:
-            raise RuntimeError("抓取翻译结束，存在失败项目：" + summary)
         progress.emit("抓取翻译完成", detail=summary, force=True)
     except Exception as exc:
         if isinstance(exc, TranslationError) and exc.abort_batch:

@@ -355,8 +355,8 @@ def test_cached_translation_retries_only_writeback(monkeypatch, tmp_path) -> Non
     job = _manual_job(context, settings)
 
     reporter = _Reporter()
-    with pytest.raises(RuntimeError, match="存在失败项目"):
-        job.handler(reporter, {"movie_number": "ABP-001"})
+    first = job.handler(reporter, {"movie_number": "ABP-001"})
+    assert first["failed_movies"] == 1
     assert reporter.summary["writeback_failed"] == 2
     assert _DmmClient.calls == ["ABP-001"]
     assert _TranslationClient.calls == ["DMM 原始标题", "DMM 原始简介"]
@@ -447,14 +447,14 @@ def test_rate_limit_continues_to_second_movie(
     )
 
     reporter = _Reporter()
-    with pytest.raises(RuntimeError, match="存在失败项目"):
-        _daily_job(context, settings).handler(reporter, {})
+    result = _daily_job(context, settings).handler(reporter, {})
 
-    assert reporter.summary["aborted"] == 0
+    assert result["aborted"] == 0
     assert reporter.summary["failed_movies"] == 2
     translation_end = [e for e in reporter.events if e["text"].startswith("阶段 3/4")][-1]
     assert translation_end["current"] == translation_end["total"] == 4
     assert reporter.events[-1]["current"] == reporter.events[-1]["total"] == 0
+    assert reporter.events[-1]["text"].startswith("抓取翻译完成")
     assert _DmmClient.calls == ["ABP-001", "ABP-002"]
     assert DmmState(tmp_path / "dmm_state.sqlite3").load("ABP-002")["title_attempts"] == 1
 
@@ -630,22 +630,55 @@ def test_fetch_retries_once_per_run_and_stops_at_limit(monkeypatch, tmp_path):
             raise DmmError("search_parse_error", "无法解析页面")
 
     monkeypatch.setattr(jobs_module, "DmmClient", FailedDmm)
-    job = _manual_job(_Context(tmp_path, [_Snapshot(1, "ABP-001")]), DmmSettings())
+    job = _daily_job(_Context(tmp_path, [_Snapshot(1, "ABP-001")]), DmmSettings())
     for _ in range(MAX_ATTEMPTS):
         reporter = _Reporter()
-        with pytest.raises(RuntimeError, match="存在失败项目"):
-            job.handler(reporter, {"movie_number": "ABP-001"})
-        assert reporter.summary["fetch_failed"] == 1
+        result = job.handler(reporter, {})
+        assert result["fetch_failed"] == 1
     reporter = _Reporter()
-    with pytest.raises(RuntimeError, match="存在失败项目"):
-        job.handler(reporter, {"movie_number": "ABP-001"})
-    assert reporter.summary["fetch_exhausted"] == 1
+    stats = job.handler(reporter, {})
+    assert stats["fetch_exhausted"] == stats["no_work"] == 1
     assert reporter.events[-1]["current"] == reporter.events[-1]["total"] == 0
-    assert reporter.summary["no_work"] == 1
     assert len(FailedDmm.calls) == MAX_ATTEMPTS
     cached = DmmState(tmp_path / "dmm_state.sqlite3").load("ABP-001")
     assert cached["fetch_status"] == "error"
     assert cached["fetch_error"] == "无法解析页面"
+
+
+def test_daily_exhausted_fetch_is_skipped_without_failing(monkeypatch, tmp_path):
+    monkeypatch.setattr(jobs_module, "DmmClient", _DmmClient)
+    job = _daily_job(_Context(tmp_path, [_Snapshot(1, "ABP-001")]), DmmSettings())
+    DmmState(tmp_path / "dmm_state.sqlite3").save(
+        "ABP-001", fetch_status="error", fetch_attempts=MAX_ATTEMPTS,
+        fetch_error="DMM 搜索结果无法精确匹配番号，未标记为不存在",
+    )
+
+    reporter = _Reporter()
+    stats = job.handler(reporter, {})
+
+    assert stats["fetch_exhausted"] == stats["no_work"] == 1
+    assert stats["failed_movies"] == 0
+    assert stats["pending_fetch"] == 0
+    assert DmmState(tmp_path / "dmm_state.sqlite3").load("ABP-001")["fetch_attempts"] == MAX_ATTEMPTS
+    assert reporter.events[-1]["text"].startswith("抓取翻译完成")
+
+
+def test_manual_number_retries_exhausted_fetch(monkeypatch, tmp_path):
+    monkeypatch.setattr(jobs_module, "DmmClient", _DmmClient)
+    snapshot = _Snapshot(1, "ABP-001")
+    context = _Context(tmp_path, [snapshot])
+    DmmState(tmp_path / "dmm_state.sqlite3").save(
+        "ABP-001", fetch_status="error", fetch_attempts=MAX_ATTEMPTS,
+        fetch_error="DMM 搜索结果无法精确匹配番号，未标记为不存在",
+    )
+
+    stats = _manual_job(context, DmmSettings()).handler(
+        _Reporter(), {"movie_number": "ABP-001"}
+    )
+
+    assert stats["fetch_exhausted"] == 0
+    assert stats["fetched"] == 1
+    assert snapshot.values["title"] == "DMM 原始标题"
 
 
 def test_no_content_is_cached_without_clearing_host_text(monkeypatch, tmp_path):
@@ -768,11 +801,12 @@ def test_local_failure_continues_and_preserves_success(monkeypatch, tmp_path):
     monkeypatch.setattr(jobs_module, "DmmClient", Dmm)
     reporter = _Reporter()
     context = _Context(tmp_path, [_Snapshot(1, "ABP-001"), _Snapshot(2, "ABP-002")])
-    with pytest.raises(RuntimeError, match="失败 1 部"):
-        _daily_job(context, DmmSettings()).handler(reporter, {})
-    assert reporter.summary["movies"] == 2
-    assert reporter.summary["writeback_applied"] == 2
+    result = _daily_job(context, DmmSettings()).handler(reporter, {})
+    assert result["failed_movies"] == 1
+    assert result["movies"] == 2
+    assert result["writeback_applied"] == 2
     assert reporter.events[-1]["current"] == reporter.events[-1]["total"] == 2
+    assert "失败 1 部" in reporter.events[-1]["text"]
 
 
 def test_progress_throttles_and_forces_final_update(monkeypatch):
@@ -803,12 +837,11 @@ def test_dmm_http_failure_continues_and_releases_lock(monkeypatch, tmp_path):
     monkeypatch.setattr(jobs_module, "DmmClient", Dmm)
     reporter = _Reporter()
     job = _daily_job(_Context(tmp_path, [_Snapshot(1, "ABP-001"), _Snapshot(2, "ABP-002")]), DmmSettings())
-    with pytest.raises(RuntimeError, match="存在失败项目"):
-        job.handler(reporter, {})
-    assert reporter.summary["aborted"] == 0
-    assert reporter.summary["movies"] == 2
-    assert reporter.summary["writeback_applied"] == 2
-    assert reporter.summary["fetch_failed"] == 1
+    result = job.handler(reporter, {})
+    assert result["aborted"] == 0
+    assert result["movies"] == 2
+    assert result["writeback_applied"] == 2
+    assert result["fetch_failed"] == 1
     monkeypatch.setattr(jobs_module, "DmmClient", _DmmClient)
     assert job.handler(_Reporter(), {})["writeback_applied"] == 2
 
@@ -1044,8 +1077,8 @@ def test_daily_retry_only_processes_failed_field(monkeypatch, tmp_path):
     job = _daily_job(context, DmmSettings(
         translation_enabled=True, base_url="https://translate.example", model="test",
     ))
-    with pytest.raises(RuntimeError, match="失败 1 部"):
-        job.handler(_Reporter(), {})
+    first = job.handler(_Reporter(), {})
+    assert first["failed_movies"] == 1
     assert [fields for _, fields, _ in context.movies.patches] == [{"summary": "中文:DMM 原始简介"}]
     result = job.handler(_Reporter(), {})
     assert _DmmClient.calls == ["ABP-001"]

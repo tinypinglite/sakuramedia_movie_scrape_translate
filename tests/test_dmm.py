@@ -154,3 +154,69 @@ def test_wrong_product_redirect_is_rejected():
     ):
         client.fetch("ABP-123")
     assert error.value.code == "product_redirect"
+
+
+def test_h_prefixed_cids_match_and_original_mono_is_preferred():
+    search = "<title>SAN-089の検索結果 - FANZA</title>"
+    rental = "https://www.dmm.co.jp/rental/ppr/-/detail/=/cid=h_796san089r/"
+    mono = "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=h_796san089/"
+    client, calls = client_for(
+        search + f'<a href="{rental}">Rental</a><a href="{mono}">Mono</a>'
+    )
+    with client:
+        result = client.fetch("SAN-089")
+    assert result.status == "success"
+    assert result.source_id == "h_796san089"
+    assert len(calls) == 2
+
+
+def test_single_letter_number_matches_digit_prefixed_cid():
+    search = "<title>T-28632の検索結果 - FANZA</title>"
+    url = "https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=55t28632/"
+    client, _ = client_for(search + f'<a href="{url}">Product</a>')
+    with client:
+        result = client.fetch("T-28632")
+    assert result.status == "success"
+    assert result.source_id == "55t28632"
+
+
+def test_monthly_detail_page_extracts_title_and_description():
+    search = "<title>SIMM-350の検索結果 - FANZA</title>"
+    url = "https://www.dmm.co.jp/monthly/premium/-/detail/=/cid=simm350/"
+    body = (
+        '<div class="title-area"><div class="title-block__title"><h1>もなみさん</h1></div></div>'
+        '<!-- 商品説明 -->'
+        '<div class="description-area"><div class="product-description-block">'
+        '<div class="ignore-new-line">一行目<br>二行目</div>'
+        '<div class="hidden-paragraph">重复内容</div>'
+        "</div></div>"
+    )
+    client, _ = client_for(search + f'<a href="{url}">Product</a>', body)
+    with client:
+        result = client.fetch("SIMM-350")
+    assert (result.status, result.title, result.desc) == (
+        "success",
+        "もなみさん",
+        "一行目 二行目",
+    )
+
+
+def test_unparseable_candidate_falls_back_to_next_match():
+    def handle(request):
+        if "/search/" in request.url.path:
+            return httpx.Response(
+                200,
+                text=SEARCH
+                + f'<a href="{URL}">Broken</a>'
+                + '<a href="https://www.dmm.co.jp/rental/ppr/-/detail/=/cid=4abp123/">Ok</a>',
+            )
+        if "abp00123" in request.url.path:
+            return httpx.Response(200, text="<h1>Unknown template</h1>")
+        return httpx.Response(200, text=DETAIL)
+
+    with DmmClient(
+        transport=httpx.MockTransport(handle), request_interval_seconds=0
+    ) as client:
+        result = client.fetch("ABP-123")
+    assert result.status == "success"
+    assert result.source_id == "4abp123"
