@@ -19,3 +19,8 @@
 优先处理已订阅影片和含订阅女优的影片，其次是未订阅影片。
 3. 如何配置dmm代理?
 dmm网站需要日本IP可以访问， 在部署`sakuramedia`时给docker容器设置代理，且自行做好分流。
+## License
+
+本项目采用 [PolyForm Noncommercial License 1.0.0](./LICENSE)，仅允许非商业用途。
+
+Copyright (C) 2026 tinypinglite
