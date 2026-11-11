@@ -33,10 +33,7 @@ class _Snapshot:
         owners=None,
         subscribed: bool = True,
         release_date=None,
-        watched_count: int = 0,
-        want_watch_count: int = 0,
-        comment_count: int = 0,
-        score_number: int = 0,
+        heat: int = 0,
         actors=(),
     ) -> None:
         self.movie_id = movie_id
@@ -46,10 +43,7 @@ class _Snapshot:
             "title": "宿主标题",
             "summary": "宿主简介",
             "release_date": release_date,
-            "watched_count": watched_count,
-            "want_watch_count": want_watch_count,
-            "comment_count": comment_count,
-            "score_number": score_number,
+            "heat": heat,
             "is_subscribed": subscribed,
         }
         self.owners = dict(owners or {})
@@ -221,7 +215,7 @@ def test_daily_filters_and_prioritizes_movies(monkeypatch, tmp_path) -> None:
         1,
         "SUB-OLD",
         release_date=datetime(2018, 1, 1),
-        watched_count=1,
+        heat=1,
     )
     subscribed_new = _Snapshot(
         2,
@@ -234,7 +228,7 @@ def test_daily_filters_and_prioritizes_movies(monkeypatch, tmp_path) -> None:
         subscribed=False,
         release_date=datetime(2024, 1, 1),
         actors=(_ActorSnapshot(subscribed=True),),
-        watched_count=2,
+        heat=2,
     )
     actress_new = _Snapshot(
         4,
@@ -248,14 +242,14 @@ def test_daily_filters_and_prioritizes_movies(monkeypatch, tmp_path) -> None:
         "REGULAR",
         subscribed=False,
         release_date=datetime(2026, 1, 1),
-        comment_count=10,
+        heat=10,
         actors=(_ActorSnapshot(subscribed=True, gender=2),),
     )
     null_date = _Snapshot(
         6,
         "NULL-DATE",
         subscribed=False,
-        comment_count=100,
+        heat=100,
     )
     skipped_number = _Snapshot(
         7,
@@ -318,6 +312,18 @@ def test_daily_filters_and_prioritizes_movies(monkeypatch, tmp_path) -> None:
         "FC-123",
         "NULL-DATE",
     ]
+
+
+def test_daily_priority_uses_host_heat(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(jobs_module, "DmmClient", _DmmClient)
+    low = _Snapshot(1, "HEAT-LOW", subscribed=False, heat=1)
+    high = _Snapshot(2, "HEAT-HIGH", subscribed=False, heat=100)
+
+    _daily_job(_Context(tmp_path, [low, high]), DmmSettings()).handler(
+        _Reporter(), {}
+    )
+
+    assert _DmmClient.calls == ["HEAT-HIGH", "HEAT-LOW"]
 
 
 def test_explicit_skipped_number_is_intercepted(monkeypatch, tmp_path) -> None:

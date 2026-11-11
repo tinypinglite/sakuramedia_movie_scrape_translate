@@ -29,12 +29,6 @@ _FAILURE_COUNTS = (
 )
 MIN_RELEASE_YEAR = 2015
 FEMALE_GENDER = 1
-INTERACTION_FIELDS = (
-    "watched_count",
-    "want_watch_count",
-    "comment_count",
-    "score_number",
-)
 SKIP_NUMBER_PATTERNS = (
     re.compile(r"^\d+[-_]\d+$"),
     re.compile(r"^FC2-", re.IGNORECASE),
@@ -136,7 +130,7 @@ def _has_subscribed_actress(movie):
 
 
 def _interaction_heat(movie):
-    return sum(int(movie.values.get(field) or 0) for field in INTERACTION_FIELDS)
+    return int(movie.values.get("heat") or 0)
 
 
 def _priority_key(movie):

@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           repository: tinypinglite/sakuramediabe
-          ref: c2728c2f3c4c25636f42a497d3cf55648db854f0
+          ref: 13bbe5b5252aa7d6489aa2f5d1a28a9e7309a214
           path: host
 
       - name: Set up Python

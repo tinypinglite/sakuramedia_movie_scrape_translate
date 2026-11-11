@@ -2,6 +2,10 @@
 
 从 DMM 抓取影片的日文标题和简介，可选翻译成中文后写回影片的 `title` 和 `summary`。
 
+## 环境要求
+
+需要后端支持 Host API 18 及以上。
+
 ## 配置
 
 不翻译时使用默认配置即可，此时写回 DMM 日文原文。需要翻译时在插件配置表单中填写并开启「启用翻译」，模型建议使用 ollama cloud的gemma4:31b模型， API类型为chat_completions
